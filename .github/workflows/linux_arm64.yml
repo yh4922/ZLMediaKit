@@ -8,13 +8,13 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
 
     - name: 下载submodule源码
       run: mv -f .gitmodules_github .gitmodules && git submodule sync && git submodule update --init
 
     - name: 下载 SRTP
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         repository: cisco/libsrtp
         fetch-depth: 1
@@ -22,7 +22,7 @@ jobs:
         path: 3rdpart/libsrtp
 
     - name: 下载 openssl
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         repository: openssl/openssl
         fetch-depth: 1
@@ -30,62 +30,26 @@ jobs:
         path: 3rdpart/openssl
 
     - name: 下载 usrsctp
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         repository: sctplab/usrsctp
         fetch-depth: 1
         ref: 0.9.5.0
         path: 3rdpart/usrsctp
 
-    - name: 启动 Docker 容器, 在 Docker 容器中编译 linux/arm64
+    # Use Debian 11 (glibc 2.31) for broader binary compatibility.
+    # ubuntu:20.04 is EOL and apt mirrors often fail in 2026.
+    - name: 在 Docker(debian:11/arm64) 中编译
       run: |
-        docker pull --platform linux/arm64 ubuntu:20.04
-        docker run --platform linux/arm64 -v $(pwd):/root -w /root --rm ubuntu:20.04 bash -c '
-          #!/bin/bash
-          set -ex
-
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git wget gcc g++ make perl python3 ca-certificates xz-utils
-
-          # 安装 aarch64 预编译 CMake，避免从源码编译过慢
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.29.5/cmake-3.29.5-linux-aarch64.tar.gz
-          tar -xzf cmake-3.29.5-linux-aarch64.tar.gz -C /opt
-          export PATH=/opt/cmake-3.29.5-linux-aarch64/bin:$PATH
-          cmake --version
-
-          mkdir -p /root/install
-
-          # 编译静态 openssl
-          cd 3rdpart/openssl
-          ./config no-shared --prefix=/root/install
-          make -j$(nproc)
-          make install
-          cd ../../
-
-          # 编译 usrsctp
-          cd 3rdpart/usrsctp
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
-          make -j$(nproc)
-          make install
-          cd ../../../
-
-          # 编译 libsrtp
-          cd 3rdpart/libsrtp
-          ./configure --enable-openssl --with-openssl-dir=/root/install
-          make -j$(nproc)
-          make install
-          cd ../../
-
-          # 编译 ZLMediaKit
-          mkdir -p linux_build
-          cd linux_build
-          cmake .. -DOPENSSL_ROOT_DIR=/root/install -DCMAKE_BUILD_TYPE=Release
-          make -j$(nproc)
-        '
+        set -eux
+        chmod +x package/build_linux_arm64.sh
+        docker version
+        docker pull --platform linux/arm64 debian:11
+        docker run --platform linux/arm64 --rm \
+          -v "${GITHUB_WORKSPACE}:/work" \
+          -w /work \
+          debian:11 \
+          bash /work/package/build_linux_arm64.sh
 
     - name: 设置环境变量
       run: |
@@ -119,5 +83,5 @@ jobs:
               + '- 编译记录: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n'
               + '- 打包ci名: ${{ github.workflow }}\n'
               + '- 开启特性: openssl/webrtc/datachannel\n'
-              + '- 说明: 本二进制为 linux/arm64(aarch64) 架构，在 ubuntu:20.04(arm64) 上编译，请确保目标机器为 arm64 且系统 glibc 不低于 2.31\n'
+              + '- 说明: 本二进制为 linux/arm64(aarch64)，在 debian:11(arm64, glibc 2.31) 上编译，目标机需 arm64 且 glibc >= 2.31\n'
           })
