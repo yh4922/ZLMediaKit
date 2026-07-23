@@ -66,9 +66,8 @@ jobs:
         if-no-files-found: error
         retention-days: 90
 
-    # 仅在仓库配置了 vars.VERSION_ISSUE_NO 时才评论；未配置则跳过，避免 SyntaxError
     - name: issue评论
-      if: github.event_name != 'pull_request' && github.ref != 'refs/heads/feature/test' && vars.VERSION_ISSUE_NO != ''
+      if: github.event_name != 'pull_request' && github.ref != 'refs/heads/feature/test'
       uses: actions/github-script@v7
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
