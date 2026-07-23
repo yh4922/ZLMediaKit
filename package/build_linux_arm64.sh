@@ -41,11 +41,11 @@ cd "${ROOT_DIR}"
 INSTALL_DIR="${ROOT_DIR}/thirdparty_install"
 mkdir -p "${INSTALL_DIR}"
 
-# OpenSSL (static, PIC required on aarch64 to link into shared libs like libmk_api.so)
+# OpenSSL (static, no-asm: its armv8 assembly is non-PIC and breaks .so linking;
+# no-dso: avoids requiring -ldl for the dlfcn engine)
 cd "${ROOT_DIR}/3rdpart/openssl"
 make distclean >/dev/null 2>&1 || true
-# -fPIC: aarch64 rejects non-PIC static objects in shared libraries
-./config no-shared -fPIC --prefix="${INSTALL_DIR}"
+./config no-shared no-asm no-dso -fPIC --prefix="${INSTALL_DIR}"
 make -j"$(nproc)"
 make install_sw
 ls -la "${INSTALL_DIR}/lib" "${INSTALL_DIR}/include/openssl" || ls -la "${INSTALL_DIR}/lib64" || true
