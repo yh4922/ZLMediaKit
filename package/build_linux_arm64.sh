@@ -4,14 +4,13 @@ set -euxo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Detect package manager
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y --no-install-recommends \
     git wget ca-certificates gcc g++ make perl python3 \
-    tar gzip xz-utils pkg-config
+    tar gzip xz-utils pkg-config zlib1g-dev
 elif command -v yum >/dev/null 2>&1; then
-  yum install -y git wget gcc gcc-c++ make perl python3 tar gzip which
+  yum install -y git wget gcc gcc-c++ make perl python3 tar gzip which zlib-devel
 else
   echo "Unsupported package manager" >&2
   exit 1
@@ -24,7 +23,6 @@ case "${ARCH}" in
   *) echo "Unsupported arch: ${ARCH}" >&2; exit 1 ;;
 esac
 
-# Install prebuilt CMake
 CMAKE_VER="3.29.5"
 CMAKE_DIR="/opt/cmake-${CMAKE_VER}-linux-${CMAKE_ARCH}"
 if [ ! -x "${CMAKE_DIR}/bin/cmake" ]; then
@@ -44,32 +42,38 @@ INSTALL_DIR="${ROOT_DIR}/thirdparty_install"
 mkdir -p "${INSTALL_DIR}"
 
 # OpenSSL (static)
-if [ ! -f "${INSTALL_DIR}/lib/libssl.a" ]; then
-  cd "${ROOT_DIR}/3rdpart/openssl"
-  make distclean >/dev/null 2>&1 || true
-  ./config no-shared --prefix="${INSTALL_DIR}"
-  make -j"$(nproc)"
-  make install_sw
-fi
+cd "${ROOT_DIR}/3rdpart/openssl"
+make distclean >/dev/null 2>&1 || true
+./config no-shared --prefix="${INSTALL_DIR}"
+make -j"$(nproc)"
+make install_sw
+ls -la "${INSTALL_DIR}/lib" "${INSTALL_DIR}/include/openssl" || ls -la "${INSTALL_DIR}/lib64" || true
+
+export PKG_CONFIG_PATH="${INSTALL_DIR}/lib/pkgconfig:${INSTALL_DIR}/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CPPFLAGS="-I${INSTALL_DIR}/include ${CPPFLAGS:-}"
+export LDFLAGS="-L${INSTALL_DIR}/lib -L${INSTALL_DIR}/lib64 ${LDFLAGS:-}"
+export LIBS="-ldl -lpthread ${LIBS:-}"
 
 # usrsctp
-if [ ! -f /usr/local/lib/libusrsctp.a ] && [ ! -f /usr/local/lib/libusrsctp.so ]; then
-  cd "${ROOT_DIR}/3rdpart/usrsctp"
-  rm -rf build
-  mkdir -p build && cd build
-  cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
-  make -j"$(nproc)"
-  make install
-fi
+cd "${ROOT_DIR}/3rdpart/usrsctp"
+rm -rf build
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
+make -j"$(nproc)"
+make install
 
 # libsrtp
-if [ ! -f /usr/local/lib/libsrtp2.a ] && [ ! -f /usr/local/lib/libsrtp2.so ]; then
-  cd "${ROOT_DIR}/3rdpart/libsrtp"
-  make distclean >/dev/null 2>&1 || true
-  ./configure --enable-openssl --with-openssl-dir="${INSTALL_DIR}"
-  make -j"$(nproc)"
-  make install
-fi
+# GCC 10+ defaults to -fno-common and breaks libsrtp 2.3.0 tests
+# (multiple definition of `bit_string`). Same fix as project dockerfile.
+cd "${ROOT_DIR}/3rdpart/libsrtp"
+make distclean >/dev/null 2>&1 || true
+CFLAGS="-fcommon ${CPPFLAGS}" \
+LDFLAGS="${LDFLAGS}" \
+LIBS="${LIBS}" \
+./configure --enable-openssl --with-openssl-dir="${INSTALL_DIR}"
+# Only build/install the library; skip broken test binaries on modern GCC.
+make -j"$(nproc)" libsrtp2.a
+make install
 
 # ZLMediaKit
 cd "${ROOT_DIR}"
