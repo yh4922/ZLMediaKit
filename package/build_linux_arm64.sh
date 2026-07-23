@@ -64,16 +64,19 @@ make install
 
 # libsrtp
 # GCC 10+ defaults to -fno-common and breaks libsrtp 2.3.0 tests
-# (multiple definition of `bit_string`). Same fix as project dockerfile.
+# (multiple definition of `bit_string`). Same fix as project dockerfile:
+# always pass CFLAGS=-fcommon for configure/make/install.
 cd "${ROOT_DIR}/3rdpart/libsrtp"
 make distclean >/dev/null 2>&1 || true
-CFLAGS="-fcommon ${CPPFLAGS}" \
-LDFLAGS="${LDFLAGS}" \
-LIBS="${LIBS}" \
+export CFLAGS="-fcommon ${CPPFLAGS:-}"
+export LDFLAGS="${LDFLAGS:-}"
+export LIBS="${LIBS:-}"
 ./configure --enable-openssl --with-openssl-dir="${INSTALL_DIR}"
-# Only build/install the library; skip broken test binaries on modern GCC.
-make -j"$(nproc)" libsrtp2.a
+make -j"$(nproc)"
 make install
+# Ensure headers/libs are visible to CMake
+ls -la /usr/local/lib/libsrtp* /usr/local/include/srtp* 2>/dev/null || true
+ls -la ./*.a ./include 2>/dev/null || true
 
 # ZLMediaKit
 cd "${ROOT_DIR}"
